@@ -1,33 +1,33 @@
-CLASS zcl_abapgit_services_abapgit DEFINITION
-  PUBLIC
-  FINAL
-  CREATE PUBLIC .
+class ZCL_ABAPGIT_SERVICES_ABAPGIT definition
+  public
+  final
+  create public .
 
-  PUBLIC SECTION.
+public section.
 
-    CONSTANTS c_abapgit_homepage TYPE string VALUE 'http://www.abapgit.org' ##NO_TEXT.
-    CONSTANTS c_abapgit_wikipage TYPE string VALUE 'http://docs.abapgit.org' ##NO_TEXT.
-    CONSTANTS c_package_abapgit TYPE devclass VALUE '$ABAPGIT' ##NO_TEXT.
-    CONSTANTS c_abapgit_url TYPE string VALUE 'https://github.com/larshp/abapGit.git' ##NO_TEXT.
-    CONSTANTS c_abapgit_tcode TYPE tcode VALUE `ZABAPGIT` ##NO_TEXT.
+  constants C_ABAPGIT_HOMEPAGE type STRING value 'http://www.abapgit.org' ##NO_TEXT.
+  constants C_ABAPGIT_WIKIPAGE type STRING value 'http://docs.abapgit.org' ##NO_TEXT.
+  constants C_PACKAGE_ABAPGIT type DEVCLASS value '$ABAPGIT' ##NO_TEXT.
+  constants C_ABAPGIT_URL type STRING value 'https://github.com/larshp/abapGit.git' ##NO_TEXT.
+  constants C_ABAPGIT_TCODE type TCODE value `ZABAPGIT` ##NO_TEXT.
 
-    CLASS-METHODS open_abapgit_homepage
-      RAISING
-        zcx_abapgit_exception .
-    CLASS-METHODS open_abapgit_wikipage
-      RAISING
-        zcx_abapgit_exception .
-    CLASS-METHODS install_abapgit
-      RAISING
-        zcx_abapgit_exception
-        zcx_abapgit_cancel .
-    CLASS-METHODS is_installed
-      RETURNING
-        VALUE(rv_installed) TYPE abap_bool .
-    CLASS-METHODS prepare_gui_startup
-      RAISING
-        zcx_abapgit_exception.
-
+  class-methods GET_REPO
+    returning
+      value(RO_REPO) type ref to ZCL_ABAPGIT_REPO .
+  class-methods OPEN_ABAPGIT_HOMEPAGE
+    raising
+      ZCX_ABAPGIT_EXCEPTION .
+  class-methods OPEN_ABAPGIT_WIKIPAGE
+    raising
+      ZCX_ABAPGIT_EXCEPTION .
+  class-methods INSTALL_ABAPGIT
+    raising
+      ZCX_ABAPGIT_EXCEPTION
+      ZCX_ABAPGIT_CANCEL .
+  class-methods PREPARE_GUI_STARTUP
+    raising
+      ZCX_ABAPGIT_EXCEPTION .
+protected section.
   PRIVATE SECTION.
     CLASS-METHODS do_install
       IMPORTING iv_title   TYPE c
@@ -50,7 +50,7 @@ ENDCLASS.
 
 
 
-CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
+CLASS ZCL_ABAPGIT_SERVICES_ABAPGIT IMPLEMENTATION.
 
 
   METHOD do_install.
@@ -92,12 +92,118 @@ CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD get_package_from_adt.
+
+    DATA: ls_item    TYPE zif_abapgit_definitions=>ty_item,
+          lr_context TYPE REF TO data,
+          lt_fields  TYPE tihttpnvp.
+
+
+    FIELD-SYMBOLS: <ls_context>    TYPE any,
+                   <lv_parameters> TYPE string,
+                   <ls_field>      LIKE LINE OF lt_fields.
+
+    ls_item-obj_type = 'CLAS'.
+    ls_item-obj_name = 'CL_ADT_GUI_INTEGRATION_CONTEXT'.
+
+    IF zcl_abapgit_objects=>exists( ls_item  ) = abap_false.
+      " ADT is not supported in this NW release
+      RETURN.
+    ENDIF.
+
+    TRY.
+        CREATE DATA lr_context TYPE ('CL_ADT_GUI_INTEGRATION_CONTEXT=>TY_CONTEXT_INFO').
+
+        ASSIGN lr_context->* TO <ls_context>.
+        ASSERT sy-subrc = 0.
+
+        CALL METHOD ('CL_ADT_GUI_INTEGRATION_CONTEXT')=>read_context
+          RECEIVING
+            result = <ls_context>.
+
+        ASSIGN COMPONENT 'PARAMETERS'
+               OF STRUCTURE <ls_context>
+               TO <lv_parameters>.
+        ASSERT sy-subrc = 0.
+
+        lt_fields = cl_http_utility=>string_to_fields(
+                        cl_http_utility=>unescape_url(
+                            <lv_parameters> ) ).
+
+        READ TABLE lt_fields ASSIGNING <ls_field>
+                             WITH KEY name = 'p_package_name'.
+        IF sy-subrc = 0.
+          rv_package = <ls_field>-value.
+
+          " We want to open the repo just once. Therefore we delete the parameters
+          " and initialize the ADT context.
+          CLEAR <lv_parameters>.
+          CALL METHOD ('CL_ADT_GUI_INTEGRATION_CONTEXT')=>initialize_instance
+            EXPORTING
+              context_info = <ls_context>.
+
+        ENDIF.
+
+      CATCH cx_root.
+        " Some problems with dynamic ADT access.
+        " Let's ignore it for now and fail silently
+    ENDTRY.
+
+  ENDMETHOD.
+
+
+  METHOD get_repo.
+
+*    DATA lt_repos      TYPE zif_abapgit_definitions=>ty_repo_ref_tt.
+*    DATA lx_error      TYPE REF TO zcx_abapgit_exception.
+*    DATA lo_ctx_list   TYPE REF TO zcl_abapgit_repo_content_list.
+*    DATA lt_repo_items TYPE zif_abapgit_definitions=>tt_repo_items.
+*
+*    FIELD-SYMBOLS: <lo_repo>      LIKE LINE OF lt_repos.
+*    FIELD-SYMBOLS: <ls_repo_item> LIKE LINE OF lt_repo_items.
+*
+*    TRY.
+*        lt_repos = zcl_abapgit_repo_srv=>get_instance( )->list( ).
+*      CATCH zcx_abapgit_exception INTO lx_error.
+**        ro_html->add( zcl_abapgit_gui_chunk_lib=>render_error( ix_error = lx_error ) ).
+*        RETURN.
+*    ENDTRY.
+*
+*    LOOP AT lt_repos ASSIGNING <lo_repo>.
+*
+*      CREATE OBJECT lo_ctx_list
+*        EXPORTING
+*          io_repo = <lo_repo>.
+*
+*      TRY .
+*          lt_repo_items = lo_ctx_list->list( iv_path         = '/'
+*          iv_by_folders   = abap_true
+*          iv_changes_only = space ).
+*        CATCH zcx_abapgit_exception INTO lx_error.
+*          CONTINUE.
+*      ENDTRY.
+*
+*      READ TABLE lt_repo_items ASSIGNING <ls_repo_item>
+*        WITH KEY obj_type = 'PROG'
+*                 obj_name = sy-cprog.
+*      IF sy-subrc = 0.
+*        ro_repo = <lo_repo>.
+*      ENDIF.
+*
+*    ENDLOOP.
+
+  ENDMETHOD.
+
+
   METHOD install_abapgit.
 
     CONSTANTS lc_title TYPE c LENGTH 40 VALUE 'Install abapGit'.
     DATA lv_text       TYPE c LENGTH 100.
+    DATA lo_repo       type REF TO zcl_abapgit_repo.
 
-    IF is_installed( ) = abap_true.
+    lo_repo = get_repo( ).
+
+    IF lo_repo IS BOUND.
       lv_text = 'Seems like abapGit package is already installed. No changes to be done'.
       zcl_abapgit_ui_factory=>get_popups( )->popup_to_inform(
         iv_titlebar              = lc_title
@@ -105,7 +211,7 @@ CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    lv_text = |Confirm to install current version of abapGit to package { c_package_abapgit }|.
+    lv_text = |Confirm to install current version of abapGit to package { lo_repo->get_package( ) }|.
 
     do_install( iv_title   = lc_title
                 iv_text    = lv_text
@@ -114,15 +220,6 @@ CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD is_installed.
-
-    DATA: ls_item TYPE zif_abapgit_definitions=>ty_item.
-
-    ls_item-obj_type = 'TRAN'.
-    ls_item-obj_name = c_abapgit_tcode.
-    rv_installed = zcl_abapgit_objects=>exists( ls_item ).
-
-  ENDMETHOD.
 
   METHOD open_abapgit_homepage.
 
@@ -146,6 +243,7 @@ CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
     ENDIF.
 
   ENDMETHOD.
+
 
   METHOD prepare_gui_startup.
 
@@ -234,65 +332,4 @@ CLASS zcl_abapgit_services_abapgit IMPLEMENTATION.
     ENDIF.
 
   ENDMETHOD.
-
-
-  METHOD get_package_from_adt.
-
-    DATA: ls_item    TYPE zif_abapgit_definitions=>ty_item,
-          lr_context TYPE REF TO data,
-          lt_fields  TYPE tihttpnvp.
-
-
-    FIELD-SYMBOLS: <ls_context>    TYPE any,
-                   <lv_parameters> TYPE string,
-                   <ls_field>      LIKE LINE OF lt_fields.
-
-    ls_item-obj_type = 'CLAS'.
-    ls_item-obj_name = 'CL_ADT_GUI_INTEGRATION_CONTEXT'.
-
-    IF zcl_abapgit_objects=>exists( ls_item  ) = abap_false.
-      " ADT is not supported in this NW release
-      RETURN.
-    ENDIF.
-
-    TRY.
-        CREATE DATA lr_context TYPE ('CL_ADT_GUI_INTEGRATION_CONTEXT=>TY_CONTEXT_INFO').
-
-        ASSIGN lr_context->* TO <ls_context>.
-        ASSERT sy-subrc = 0.
-
-        CALL METHOD ('CL_ADT_GUI_INTEGRATION_CONTEXT')=>read_context
-          RECEIVING
-            result = <ls_context>.
-
-        ASSIGN COMPONENT 'PARAMETERS'
-               OF STRUCTURE <ls_context>
-               TO <lv_parameters>.
-        ASSERT sy-subrc = 0.
-
-        lt_fields = cl_http_utility=>string_to_fields(
-                        cl_http_utility=>unescape_url(
-                            <lv_parameters> ) ).
-
-        READ TABLE lt_fields ASSIGNING <ls_field>
-                             WITH KEY name = 'p_package_name'.
-        IF sy-subrc = 0.
-          rv_package = <ls_field>-value.
-
-          " We want to open the repo just once. Therefore we delete the parameters
-          " and initialize the ADT context.
-          CLEAR <lv_parameters>.
-          CALL METHOD ('CL_ADT_GUI_INTEGRATION_CONTEXT')=>initialize_instance
-            EXPORTING
-              context_info = <ls_context>.
-
-        ENDIF.
-
-      CATCH cx_root.
-        " Some problems with dynamic ADT access.
-        " Let's ignore it for now and fail silently
-    ENDTRY.
-
-  ENDMETHOD.
-
 ENDCLASS.

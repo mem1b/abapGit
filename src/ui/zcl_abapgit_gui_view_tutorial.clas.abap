@@ -18,6 +18,9 @@ CLASS ZCL_ABAPGIT_GUI_VIEW_TUTORIAL IMPLEMENTATION.
 
   METHOD render_content.
 
+    DATA lo_abapgit_repo TYPE REF TO zcl_abapgit_repo.
+*    DATA: lv_abapgit_package type tadir-devclass.
+
     CREATE OBJECT ro_html.
 
     ro_html->add( '<h1>Tutorial</h1>' ).
@@ -53,9 +56,11 @@ CLASS ZCL_ABAPGIT_GUI_VIEW_TUTORIAL IMPLEMENTATION.
     ro_html->add( '<h2>abapGit repository</h2>' ).
     ro_html->add( '<p><ul>' ).
     ro_html->add( '<li>' ).
-    IF zcl_abapgit_services_abapgit=>is_installed( ) = abap_true.
+
+    lo_abapgit_repo = zcl_abapgit_services_abapgit=>get_repo( ).
+    IF lo_abapgit_repo IS BOUND.
       ro_html->add( 'abapGit installed in package&nbsp;' ).
-      ro_html->add( zcl_abapgit_services_abapgit=>c_package_abapgit ).
+      ro_html->add( lo_abapgit_repo->get_package( ) ).
     ELSE.
       ro_html->add_a( iv_txt = 'install abapGit repo' iv_act = zif_abapgit_definitions=>c_action-abapgit_install ).
       ro_html->add( ' - To keep abapGit up-to-date (or also to contribute) you need to' ).
